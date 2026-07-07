@@ -1,4 +1,4 @@
-# CowEstrus — Real-Time Multi-Camera Estrus Behavior Detection
+# REAL-TIME AUTOMATED ESTRUS BEHAVIOR DETECTION AND ANALYSIS FOR NORTHERN THAI FARM: A MULTI-CAMERA, COMPUTER VISION SYSTEM
 
 A dual-camera computer-vision pipeline for automated detection of cattle mounting
 (estrus) behavior on a smallholder farm, running in real time on an **NVIDIA Jetson
