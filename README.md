@@ -68,7 +68,7 @@ the git history via `.gitignore`). Download them from the latest release and pla
 `models/`:
 
 ```
-models/mount_best_new777.pt      # mounting-event detector
+models/mount_best.pt      # mounting-event detector
 models/collar_best.pt            # collar / individual-ID detector
 ```
 
