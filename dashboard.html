@@ -1,0 +1,1393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CowEstrus — Mount Detection Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0a0d0f;
+    --surface:   #111518;
+    --card:      #161b1f;
+    --border:    #1f2830;
+    --accent:    #00e5a0;
+    --accent2:   #ff6b35;
+    --accent3:   #4d9fff;
+    --text:      #e8edf2;
+    --muted:     #5a6a78;
+    --confirmed: #00e5a0;
+    --possible:  #ffd166;
+    --danger:    #ff4d6d;
+    --mono:      'Space Mono', monospace;
+    --sans:      'DM Sans', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .logo-text { font-family: var(--mono); font-size: 14px; font-weight: 700; letter-spacing: 0.05em; }
+  .logo-sub  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .status-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 99px;
+    padding: 6px 14px;
+    font-size: 12px; font-family: var(--mono);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted);
+    transition: background 0.3s;
+  }
+  .status-dot.running { background: var(--accent); box-shadow: 0 0 8px var(--accent); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; gap: 2px;
+    padding: 0 32px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    padding: 14px 24px;
+    font-size: 13px; font-weight: 500;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+    user-select: none;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Tab panels ── */
+  .panel { display: none; padding: 28px 32px; }
+  .panel.active { display: block; }
+
+  /* ── Control panel ── */
+  .control-grid {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    gap: 20px;
+  }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+
+  /* Input group */
+  .input-group { margin-bottom: 14px; }
+  .input-group label {
+    display: block;
+    font-size: 12px; color: var(--muted);
+    margin-bottom: 6px;
+    font-family: var(--mono);
+  }
+  .input-row { display: flex; gap: 8px; }
+  input[type="text"], input[type="number"], select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  input:focus, select:focus { border-color: var(--accent); }
+  select option { background: var(--bg); }
+
+  .mode-toggle {
+    display: flex;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 14px;
+  }
+  .mode-btn {
+    flex: 1; padding: 9px;
+    font-size: 12px; font-family: var(--mono);
+    text-align: center; cursor: pointer;
+    color: var(--muted);
+    transition: all 0.2s;
+    border: none; background: none;
+  }
+  .mode-btn.active { background: var(--accent); color: #000; font-weight: 700; }
+
+  /* Source inputs shown/hidden by mode */
+  .source-inputs { display: none; }
+  .source-inputs.visible { display: block; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px; font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    font-family: var(--sans);
+  }
+  .btn-primary { background: var(--accent); color: #000; width: 100%; margin-top: 8px; }
+  .btn-primary:hover { background: #00ffb3; }
+  .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; }
+  .btn-danger  { background: var(--danger); color: #fff; width: 100%; margin-top: 8px; }
+  .btn-danger:hover { background: #ff1a3e; }
+  .btn-sm { padding: 6px 12px; font-size: 11px; }
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Live feed area */
+  .live-area {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 16px;
+  }
+  .cam-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .cam-feed {
+    background: #050709;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    aspect-ratio: 16/9;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .cam-feed img {
+    width: 100%; height: 100%; object-fit: cover;
+    display: none;
+  }
+  .cam-placeholder {
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+  }
+  .cam-placeholder svg { opacity: 0.3; }
+  .cam-label {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid var(--border);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-family: var(--mono); font-size: 10px;
+    color: var(--accent);
+  }
+  .cam-fps {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(0,0,0,0.7);
+    padding: 3px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 10px; color: var(--muted);
+  }
+
+  /* Event feed */
+  .event-feed { overflow-y: auto; max-height: 260px; }
+  .event-item {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    animation: slideIn 0.3s ease;
+  }
+  @keyframes slideIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:none} }
+  .event-item:last-child { border-bottom: none; }
+  .event-badge {
+    padding: 3px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .badge-confirmed { background: rgba(0,229,160,0.15); color: var(--confirmed); border: 1px solid rgba(0,229,160,0.3); }
+  .badge-possible  { background: rgba(255,209,102,0.15); color: var(--possible);  border: 1px solid rgba(255,209,102,0.3); }
+  .badge-fused     { background: rgba(77,159,255,0.15);  color: var(--accent3);   border: 1px solid rgba(77,159,255,0.3); }
+  .event-detail { flex: 1; font-size: 12px; }
+  .event-ids { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .event-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .event-conf { font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: right; flex-shrink: 0; }
+
+  /* ── Analytics panel ── */
+  .analytics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+  }
+  .stat-label { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .stat-value { font-family: var(--mono); font-size: 28px; font-weight: 700; margin-top: 6px; color: var(--text); }
+  .stat-value.green  { color: var(--confirmed); }
+  .stat-value.yellow { color: var(--possible); }
+  .stat-value.blue   { color: var(--accent3); }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .chart-card.wide { grid-column: span 2; }
+
+
+  /* Collar leaderboard */
+  .leaderboard { list-style: none; }
+  .lb-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .lb-item:last-child { border-bottom: none; }
+  .lb-rank { font-family: var(--mono); font-size: 11px; color: var(--muted); width: 20px; }
+  .lb-swatch { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .lb-name { flex: 1; font-size: 13px; }
+  .lb-bar-wrap { width: 80px; height: 4px; background: var(--border); border-radius: 2px; }
+  .lb-bar { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.6s ease; }
+  .lb-count { font-family: var(--mono); font-size: 12px; color: var(--text); text-align: right; width: 30px; }
+
+  /* Log table */
+  .log-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted);
+    padding: 8px 12px; text-align: left;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr { border-bottom: 1px solid rgba(31,40,48,0.6); transition: background 0.15s; }
+  tbody tr:hover { background: rgba(255,255,255,0.02); }
+  tbody td { padding: 8px 12px; color: var(--text); white-space: nowrap; }
+  .conf-bar {
+    display: flex; align-items: center; gap: 6px;
+  }
+  .conf-fill {
+    height: 3px; background: var(--accent); border-radius: 2px;
+    min-width: 2px;
+  }
+
+  /* Confidence dot */
+  .cdot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Empty state */
+  .empty {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 12px;
+    padding: 60px 20px;
+    color: var(--muted); font-family: var(--mono); font-size: 12px;
+    text-align: center;
+  }
+
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .toggle-label { font-size: 12px; color: var(--muted); }
+  .toggle {
+    width: 36px; height: 20px; background: var(--border);
+    border-radius: 99px; cursor: pointer; position: relative;
+    transition: background 0.2s;
+  }
+  .toggle.on { background: var(--accent); }
+  .toggle::after {
+    content: ''; position: absolute;
+    width: 14px; height: 14px; background: #fff;
+    border-radius: 50%; top: 3px; left: 3px;
+    transition: transform 0.2s;
+  }
+  .toggle.on::after { transform: translateX(16px); }
+
+  .divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+  .refresh-btn {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--muted);
+    background: none; border: none; cursor: pointer;
+    font-family: var(--mono); padding: 4px 8px;
+    border-radius: 6px; transition: all 0.2s;
+    margin-left: auto;
+  }
+  .refresh-btn:hover { color: var(--accent); background: rgba(0,229,160,0.05); }
+
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  /* Log filter buttons */
+  .log-filter-btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    font-size: 12px; font-family: var(--mono);
+    cursor: pointer;
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    transition: all 0.2s;
+  }
+  .log-filter-btn:hover  { border-color: var(--accent); color: var(--accent); }
+  .log-filter-btn.active { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+
+  /* Review status badges */
+  .review-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 4px;
+    font-family: var(--mono); font-size: 10px; font-weight: 700;
+  }
+  .review-pending           { background: rgba(255,209,102,0.1); color: var(--possible);  border: 1px solid rgba(255,209,102,0.3); }
+  .review-farmer_confirmed  { background: rgba(0,229,160,0.1);   color: var(--confirmed); border: 1px solid rgba(0,229,160,0.3); }
+  .review-rejected          { background: rgba(255,77,109,0.1);  color: var(--danger);    border: 1px solid rgba(255,77,109,0.3); }
+
+  /* Clip watch button */
+  .btn-watch {
+    background: rgba(77,159,255,0.1);
+    border: 1px solid rgba(77,159,255,0.3);
+    color: var(--accent3);
+    padding: 4px 10px; border-radius: 6px;
+    font-size: 11px; font-family: var(--mono);
+    cursor: pointer; transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-watch:hover { background: rgba(77,159,255,0.25); }
+
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🐄</div>
+    <div>
+      <div class="logo-text">COWESTRUS</div>
+      <div class="logo-sub">Mount Detection System</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:12px;">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted)" id="clock">--:--:--</div>
+    <div class="status-pill">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Idle</span>
+    </div>
+  </div>
+</header>
+
+<!-- ── Tabs ── -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('control')">▶ Run</div>
+  <div class="tab" onclick="switchTab('analytics')">◈ Analytics</div>
+  <div class="tab" onclick="switchTab('log')">≡ Event Log</div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 1 — CONTROL / RUN
+══════════════════════════════════════ -->
+<div class="panel active" id="panel-control">
+  <div class="control-grid">
+
+    <!-- Left: config -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-title">Input Mode</div>
+        <div class="mode-toggle">
+          <button class="mode-btn active" onclick="setMode('video')" id="modeVideo">📁 Video File</button>
+          <button class="mode-btn" onclick="setMode('rtsp')"  id="modeRtsp">📡 RTSP Stream</button>
+        </div>
+
+        <!-- Video mode -->
+        <div class="source-inputs visible" id="videoInputs">
+          <div class="input-group">
+            <label>CAM1 — Video Path</label>
+            <input type="text" id="cam1Path" placeholder="e.g. footage\cam1 or footage\cam1\clip.mp4" value="">
+          </div>
+          <div class="input-group">
+            <label>CAM2 — Video Path <span style="color:var(--muted)">(optional)</span></label>
+            <input type="text" id="cam2Path" placeholder="e.g. footage\cam2 or footage\cam2\clip.mp4" value="">
+          </div>
+          <div class="input-group">
+            <label>CAM1 Start Epoch <span style="color:var(--muted)">(optional)</span></label>
+            <input type="number" id="cam1Start" placeholder="Unix timestamp">
+          </div>
+          <div class="input-group">
+            <label>CAM2 Start Epoch <span style="color:var(--muted)">(optional)</span></label>
+            <input type="number" id="cam2Start" placeholder="Unix timestamp">
+          </div>
+        </div>
+
+        <!-- RTSP mode -->
+        <div class="source-inputs" id="rtspInputs">
+          <div class="input-group">
+            <label>CAM1 — RTSP URL</label>
+            <input type="text" id="cam1Rtsp" placeholder="rtsp://192.168.1.x:554/stream1">
+          </div>
+          <div class="input-group">
+            <label>CAM2 — RTSP URL <span style="color:var(--muted)">(optional)</span></label>
+            <input type="text" id="cam2Rtsp" placeholder="rtsp://192.168.1.x:554/stream2">
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-title">Detection Settings</div>
+        <div class="input-group">
+          <label>Mount Model Path</label>
+          <input type="text" id="mountModel" value="models/mount_best_new777.engine">
+        </div>
+        <div class="input-group">
+          <label>Collar Model Path</label>
+          <input type="text" id="collarModel" value="models/collar_best.engine">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div class="input-group">
+            <label>Mount Conf</label>
+            <input type="number" id="mountConf" value="0.5" step="0.05" min="0.1" max="1.0">
+          </div>
+          <div class="input-group">
+            <label>Image Size</label>
+            <select id="imgsz">
+              <option value="640" selected>640</option>
+              <option value="416">416 (faster)</option>
+              <option value="320">320 (fastest)</option>
+            </select>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <span class="toggle-label">Test-Time Augmentation</span>
+          <div class="toggle" id="augToggle" onclick="this.classList.toggle('on')"></div>
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="runBtn" onclick="startRun()">▶ &nbsp;Start Detection</button>
+      <button class="btn btn-danger" id="stopBtn" onclick="stopRun()" style="display:none;">■ &nbsp;Stop</button>
+    </div>
+
+    <!-- Right: live feeds + event feed -->
+    <div class="live-area">
+      <div class="cam-grid">
+        <div class="cam-feed" id="feed1">
+          <div class="cam-label">CAM1</div>
+          <div class="cam-fps" id="fps1">— fps</div>
+          <img id="streamCam1" src="" alt="CAM1 feed" style="display:none;width:100%;height:100%;object-fit:cover;">
+          <div class="cam-placeholder" id="placeholder1">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3l4 4-4 4"/><path d="M8 3l-4 4 4 4"/></svg>
+            <span>No feed</span>
+          </div>
+        </div>
+        <div class="cam-feed" id="feed2">
+          <div class="cam-label">CAM2</div>
+          <div class="cam-fps" id="fps2">— fps</div>
+          <img id="streamCam2" src="" alt="CAM2 feed" style="display:none;width:100%;height:100%;object-fit:cover;">
+          <div class="cam-placeholder" id="placeholder2">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 3l4 4-4 4"/><path d="M8 3l-4 4 4 4"/></svg>
+            <span>No feed</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="flex:1;">
+        <div class="section-header">
+          <div class="card-title" style="margin:0">Live Events</div>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--muted)" id="eventCount">0 events</span>
+        </div>
+        <div class="event-feed" id="eventFeed">
+          <div class="empty">
+            <span>No events detected yet</span>
+            <span style="font-size:10px">Start a detection run to see live events</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 2 — ANALYTICS
+══════════════════════════════════════ -->
+<div class="panel" id="panel-analytics">
+
+  <div class="section-header">
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted)">SESSION ANALYTICS</div>
+    <button class="refresh-btn" onclick="refreshAnalytics()">↻ Refresh</button>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="analytics-grid">
+    <div class="stat-card">
+      <div class="stat-label">Total Events</div>
+      <div class="stat-value" id="statTotal">0</div>
+      <div class="stat-sub">This session</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Confirmed</div>
+      <div class="stat-value green" id="statConfirmed">0</div>
+      <div class="stat-sub" id="statConfPct">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Possible</div>
+      <div class="stat-value yellow" id="statPossible">0</div>
+      <div class="stat-sub" id="statPosPct">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Fused Events</div>
+      <div class="stat-value blue" id="statFused">0</div>
+      <div class="stat-sub">Dual-camera confirmed</div>
+    </div>
+  </div>
+
+  <div class="charts-grid">
+
+    <!-- Events over time -->
+    <div class="chart-card wide">
+      <div class="card-title">Events Over Time</div>
+      <div id="timelineChart"></div>
+    </div>
+
+    <!-- Confidence dist -->
+    <div class="chart-card">
+      <div class="card-title">Avg Confidence</div>
+      <div id="confChart"></div>
+    </div>
+
+    <!-- Collar frequency -->
+    <div class="chart-card wide">
+      <div class="card-title">Collar Colour Frequency — All Events</div>
+      <ul class="leaderboard" id="collarAllLB"></ul>
+    </div>
+
+    <!-- Most in estrus -->
+    <div class="chart-card">
+      <div class="card-title">Most Likely in Estrus — Confirmed Mountee</div>
+      <ul class="leaderboard" id="collarEstruLB"></ul>
+    </div>
+
+    <!-- Camera breakdown -->
+    <div class="chart-card">
+      <div class="card-title">Camera Source</div>
+      <div id="camChart"></div>
+    </div>
+
+    <!-- ID method breakdown -->
+    <div class="chart-card">
+      <div class="card-title">ID Method</div>
+      <div id="idChart"></div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 3 — EVENT LOG
+══════════════════════════════════════ -->
+<div class="panel" id="panel-log">
+  <div class="section-header">
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button class="log-filter-btn active" onclick="setLogFilter('all',this)">All</button>
+      <button class="log-filter-btn" onclick="setLogFilter('pending',this)">⏳ Pending</button>
+      <button class="log-filter-btn" onclick="setLogFilter('farmer_confirmed',this)">✓ Confirmed</button>
+      <button class="log-filter-btn" onclick="setLogFilter('rejected',this)">✗ Rejected</button>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <input type="text" id="logSearch" placeholder="Filter by ID or type..." style="width:200px;font-size:12px;" oninput="filterLog()">
+      <button class="refresh-btn" onclick="refreshLog()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div style="display:flex;gap:12px;margin-bottom:16px;">
+    <div class="card" style="flex:1;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">PENDING REVIEW</span>
+      <span style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--possible)" id="countPending">0</span>
+    </div>
+    <div class="card" style="flex:1;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">FARMER CONFIRMED</span>
+      <span style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--confirmed)" id="countConfirmed">0</span>
+    </div>
+    <div class="card" style="flex:1;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-family:var(--mono);font-size:10px;color:var(--muted)">REJECTED</span>
+      <span style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--danger)" id="countRejected">0</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="log-wrap">
+      <table id="logTable">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Cam</th>
+            <th>Type</th>
+            <th>Mount Conf</th>
+            <th>Mounter</th>
+            <th>Mountee</th>
+            <th>Fused</th>
+            <th>Clip</th>
+            <th>Review</th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+          <tr><td colspan="9"><div class="empty">No log data loaded</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ── Review modal ── -->
+<div id="clipModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:999;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;max-width:480px;width:90%;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div style="font-family:var(--mono);font-size:12px;color:var(--accent)">REVIEW EVENT</div>
+      <button onclick="closeModal()" style="background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1;">&#10005;</button>
+    </div>
+
+    <!-- Event details -->
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Time</div>
+          <div style="font-family:var(--mono);font-size:12px;" id="modalTime">-</div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Camera</div>
+          <div style="font-family:var(--mono);font-size:12px;" id="modalCam">-</div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Mounter</div>
+          <div id="modalMounter">-</div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Mountee</div>
+          <div id="modalMountee">-</div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Confidence</div>
+          <div style="font-family:var(--mono);font-size:12px;" id="modalConf">-</div>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:9px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Type</div>
+          <div id="modalType">-</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Clip filename -->
+    <div style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:12px;word-break:break-all;" id="modalClip"></div>
+
+    <!-- Open in player button -->
+    <button class="btn btn-outline" style="width:100%;margin-bottom:12px;" id="modalOpenBtn" onclick="openInPlayer()">
+      &#9654; &nbsp;Open Clip in Video Player
+    </button>
+
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="reviewEvent('farmer_confirmed')">&#10003; &nbsp;Confirm Mount</button>
+      <button class="btn btn-danger"  style="flex:1;" onclick="reviewEvent('rejected')">&#10007; &nbsp;Reject</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── D3.js via CDN ── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+
+<script>
+// ─────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────
+var isRunning  = false;
+var inputMode  = 'video';
+var allEvents  = [];
+var rawLogData = [];
+var pollInterval = null;
+
+var COLLAR_COLOURS = {
+  blue_collar:   '#4d9fff',
+  green_collar:  '#00e5a0',
+  red_collar:    '#ff4d6d',
+  yellow_collar: '#ffd166',
+  mixed:         '#8a9bb0',
+  'N/A':         '#2a3540',
+};
+
+// ─────────────────────────────────────────────
+//  CLOCK
+// ─────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB', {hour12: false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─────────────────────────────────────────────
+//  TABS
+// ─────────────────────────────────────────────
+function switchTab(name) {
+  var names = ['control','analytics','log'];
+  document.querySelectorAll('.tab').forEach(function(t, i) {
+    t.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(function(p) { p.classList.remove('active'); });
+  document.getElementById('panel-' + name).classList.add('active');
+  if (name === 'analytics') refreshAnalytics();
+  if (name === 'log')       refreshLog();
+}
+
+// ─────────────────────────────────────────────
+//  MODE TOGGLE
+// ─────────────────────────────────────────────
+function setMode(mode) {
+  inputMode = mode;
+  document.getElementById('modeVideo').classList.toggle('active', mode === 'video');
+  document.getElementById('modeRtsp').classList.toggle('active',  mode === 'rtsp');
+  document.getElementById('videoInputs').classList.toggle('visible', mode === 'video');
+  document.getElementById('rtspInputs').classList.toggle('visible',  mode === 'rtsp');
+}
+
+// ─────────────────────────────────────────────
+//  BUILD COMMAND
+// ─────────────────────────────────────────────
+function buildCommand() {
+  var mountModel  = document.getElementById('mountModel').value.trim();
+  var collarModel = document.getElementById('collarModel').value.trim();
+  var mountConf   = document.getElementById('mountConf').value;
+  var imgsz       = document.getElementById('imgsz').value;
+  var augment     = document.getElementById('augToggle').classList.contains('on');
+  var cmd = 'python cattle_mount_detector_dual_folder_upgrade.py';
+  if (inputMode === 'video') {
+    var cam1 = document.getElementById('cam1Path').value.trim();
+    var cam2 = document.getElementById('cam2Path').value.trim();
+    var s1   = document.getElementById('cam1Start').value.trim();
+    var s2   = document.getElementById('cam2Start').value.trim();
+    if (cam1) cmd += ' --cam1 ' + cam1;
+    if (cam2) cmd += ' --cam2 ' + cam2;
+    if (s1)   cmd += ' --cam1-start ' + s1;
+    if (s2)   cmd += ' --cam2-start ' + s2;
+  } else {
+    var r1 = document.getElementById('cam1Rtsp').value.trim();
+    var r2 = document.getElementById('cam2Rtsp').value.trim();
+    if (r1) cmd += ' --cam1 ' + r1;
+    if (r2) cmd += ' --cam2 ' + r2;
+    cmd += ' --live';
+  }
+  cmd += ' --mount-model ' + mountModel;
+  cmd += ' --collar-model ' + collarModel;
+  cmd += ' --mount-conf ' + mountConf;
+  cmd += ' --mount-imgsz ' + imgsz;
+  if (augment) cmd += ' --mount-augment';
+  return cmd;
+}
+
+// ─────────────────────────────────────────────
+//  RUN / STOP
+// ─────────────────────────────────────────────
+async function startRun() {
+  var cmd = buildCommand();
+  var cam1Src = inputMode === 'video' ? document.getElementById('cam1Path').value.trim() : document.getElementById('cam1Rtsp').value.trim();
+  var cam2Src = inputMode === 'video' ? document.getElementById('cam2Path').value.trim() : document.getElementById('cam2Rtsp').value.trim();
+  try {
+    var res  = await fetch('/api/run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ command: cmd, mode: inputMode, cam1: cam1Src, cam2: cam2Src })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      setRunning(true);
+      startPolling();
+      connectStreams(cam1Src, cam2Src);
+    } else {
+      alert('Failed to start: ' + (data.error || 'unknown error'));
+    }
+  } catch(e) {
+    setRunning(true);
+    startPolling();
+    connectStreams(cam1Src, cam2Src);
+    console.warn('[CowEstrus] No backend — demo mode');
+  }
+}
+
+async function stopRun() {
+  try { await fetch('/api/stop', { method: 'POST' }); } catch(e) {}
+  setRunning(false);
+  stopPolling();
+}
+
+function setRunning(v) {
+  if (!v) disconnectStreams();
+  isRunning = v;
+  document.getElementById('runBtn').style.display  = v ? 'none' : 'flex';
+  document.getElementById('stopBtn').style.display = v ? 'flex' : 'none';
+  var dot  = document.getElementById('statusDot');
+  var text = document.getElementById('statusText');
+  dot.className    = 'status-dot' + (v ? ' running' : '');
+  text.textContent = v ? 'Running' : 'Idle';
+}
+
+function connectStreams(cam1Src, cam2Src) {
+  var img1 = document.getElementById('streamCam1');
+  img1.src = '/stream/cam1?' + Date.now();
+  img1.style.display = 'block';
+  document.getElementById('placeholder1').style.display = 'none';
+  if (cam2Src) {
+    var img2 = document.getElementById('streamCam2');
+    img2.src = '/stream/cam2?' + Date.now();
+    img2.style.display = 'block';
+    document.getElementById('placeholder2').style.display = 'none';
+  }
+}
+
+function disconnectStreams() {
+  var img1 = document.getElementById('streamCam1');
+  img1.src = ''; img1.style.display = 'none';
+  var img2 = document.getElementById('streamCam2');
+  img2.src = ''; img2.style.display = 'none';
+  document.getElementById('placeholder1').style.display = 'flex';
+  document.getElementById('placeholder2').style.display = 'flex';
+}
+
+// ─────────────────────────────────────────────
+//  POLLING
+// ─────────────────────────────────────────────
+function startPolling() { pollInterval = setInterval(pollEvents, 2000); pollEvents(); }
+function stopPolling()  { clearInterval(pollInterval); pollInterval = null; }
+
+async function pollEvents() {
+  try {
+    var res  = await fetch('/api/events');
+    var data = await res.json();
+    if (isRunning && !data.running) {
+      setRunning(false);
+      stopPolling();
+    }
+    if (data.events && data.events.length !== allEvents.length) {
+      var newOnes = data.events.slice(allEvents.length);
+      allEvents = data.events;
+      newOnes.forEach(addEventToFeed);
+      updateEventCount();
+      updateFpsBadges(data.fps || {});
+    }
+  } catch(e) {}
+}
+
+// ─────────────────────────────────────────────
+//  LIVE EVENT FEED
+// ─────────────────────────────────────────────
+function addEventToFeed(ev) {
+  var feed  = document.getElementById('eventFeed');
+  var empty = feed.querySelector('.empty');
+  if (empty) empty.remove();
+  var badgeClass = ev.fused === 'True' ? 'badge-fused' :
+                   ev.event_type === 'confirmed' ? 'badge-confirmed' : 'badge-possible';
+  var badgeText  = ev.fused === 'True' ? 'FUSED' : (ev.event_type || '').toUpperCase();
+  var item = document.createElement('div');
+  item.className = 'event-item';
+  item.innerHTML =
+    '<div class="event-badge ' + badgeClass + '">' + badgeText + '</div>' +
+    '<div class="event-detail">' +
+      '<div class="event-ids">' + collarBadge(ev.mounter_id) + ' &rarr; ' + collarBadge(ev.mountee_id) + '</div>' +
+      '<div class="event-meta">' + (ev.cam || '') + ' &nbsp;&middot;&nbsp; ' + ((ev.timestamp || '').split(' ')[1] || ev.timestamp) + '</div>' +
+    '</div>' +
+    '<div class="event-conf"><div>' + pct(ev.mount_event_conf) + '</div><div style="color:var(--muted);font-size:9px">conf</div></div>';
+  feed.insertBefore(item, feed.firstChild);
+  while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+}
+
+function collarBadge(id) {
+  if (!id || id === 'N/A') return '<span style="color:var(--muted)">N/A</span>';
+  var key = id.replace(/[^a-z_]/gi,'').toLowerCase();
+  var col = COLLAR_COLOURS[key] || '#8a9bb0';
+  return '<span><span class="cdot" style="background:' + col + '"></span>' + id + '</span>';
+}
+
+function pct(v) {
+  var n = parseFloat(v);
+  return isNaN(n) ? '-' : (n * 100).toFixed(0) + '%';
+}
+
+function avg(arr) { return arr.length ? arr.reduce(function(a,b){return a+b;},0)/arr.length : 0; }
+
+function updateEventCount() {
+  document.getElementById('eventCount').textContent = allEvents.length + ' events';
+}
+
+function updateFpsBadges(fps) {
+  if (fps.cam1) document.getElementById('fps1').textContent = parseFloat(fps.cam1).toFixed(1) + ' fps';
+  if (fps.cam2) document.getElementById('fps2').textContent = parseFloat(fps.cam2).toFixed(1) + ' fps';
+}
+
+// ─────────────────────────────────────────────
+//  ANALYTICS
+// ─────────────────────────────────────────────
+async function refreshAnalytics() {
+  var events = allEvents;
+  if (!events.length) {
+    try {
+      var res = await fetch('/api/events');
+      var d   = await res.json();
+      events = d.events || [];
+      allEvents = events;
+    } catch(e) { events = getSampleData(); }
+  }
+  if (!events.length) events = getSampleData();
+  renderStats(events);
+  renderTimeline(events);
+  renderConfChart(events);
+  renderCollarFrequency('collarAllLB', events);
+  renderEstrusLeaderboard('collarEstruLB', events);
+  renderCamChart(events);
+  renderIdChart(events);
+}
+
+function renderStats(events) {
+  var total     = events.length;
+  var confirmed = events.filter(function(e){return e.event_type==='confirmed';}).length;
+  var possible  = events.filter(function(e){return e.event_type==='possible';}).length;
+  var fused     = events.filter(function(e){return e.fused==='True';}).length;
+  document.getElementById('statTotal').textContent     = total;
+  document.getElementById('statConfirmed').textContent = confirmed;
+  document.getElementById('statPossible').textContent  = possible;
+  document.getElementById('statFused').textContent     = fused;
+  document.getElementById('statConfPct').textContent   = total ? (confirmed/total*100).toFixed(0)+'% of total' : '-';
+  document.getElementById('statPosPct').textContent    = total ? (possible/total*100).toFixed(0)+'% of total'  : '-';
+}
+
+// ─── D3 Charts ────────────────────────────────
+function renderTimeline(events) {
+  var el = document.getElementById('timelineChart');
+  el.innerHTML = '';
+  var buckets = {};
+  events.forEach(function(e) {
+    var key = (e.timestamp||'').slice(0,13);
+    if (!buckets[key]) buckets[key] = { confirmed:0, possible:0 };
+    buckets[key][e.event_type==='confirmed'?'confirmed':'possible']++;
+  });
+  var labels = Object.keys(buckets).sort();
+  if (!labels.length) { el.innerHTML = '<div class="empty">No data</div>'; return; }
+  var data = labels.map(function(k){ return { label: k.slice(11)+'h', confirmed: buckets[k].confirmed, possible: buckets[k].possible }; });
+
+  var W = el.offsetWidth||400, H = 150;
+  var m = {top:10,right:10,bottom:28,left:28};
+  var w = W-m.left-m.right, h = H-m.top-m.bottom;
+  var svg = d3.select(el).append('svg').attr('width',W).attr('height',H);
+  var g   = svg.append('g').attr('transform','translate('+m.left+','+m.top+')');
+  var x0  = d3.scaleBand().domain(data.map(function(d){return d.label;})).range([0,w]).padding(0.25);
+  var x1  = d3.scaleBand().domain(['confirmed','possible']).range([0,x0.bandwidth()]).padding(0.05);
+  var maxY= d3.max(data,function(d){return d.confirmed+d.possible;})||1;
+  var y   = d3.scaleLinear().domain([0,maxY]).range([h,0]).nice();
+
+  g.append('g').call(d3.axisLeft(y).ticks(4).tickSize(-w).tickFormat(function(d){return Math.round(d);}))
+    .call(function(ax){ ax.select('.domain').remove(); ax.selectAll('.tick line').attr('stroke','#1f2830'); ax.selectAll('.tick text').attr('fill','#5a6a78').attr('font-family','Space Mono').attr('font-size',9); });
+
+  var groups = g.selectAll('.grp').data(data).join('g').attr('transform',function(d){return 'translate('+x0(d.label)+',0)';});
+  groups.selectAll('.bc').data(function(d){return[d];}).join('rect').attr('class','bc')
+    .attr('x',function(){return x1('confirmed');}).attr('width',x1.bandwidth())
+    .attr('y',function(d){return y(d.confirmed);}).attr('height',function(d){return h-y(d.confirmed);})
+    .attr('fill','rgba(0,229,160,0.75)').attr('rx',3);
+  groups.selectAll('.bp').data(function(d){return[d];}).join('rect').attr('class','bp')
+    .attr('x',function(){return x1('possible');}).attr('width',x1.bandwidth())
+    .attr('y',function(d){return y(d.possible);}).attr('height',function(d){return h-y(d.possible);})
+    .attr('fill','rgba(255,209,102,0.6)').attr('rx',3);
+
+  g.append('g').attr('transform','translate(0,'+h+')').call(d3.axisBottom(x0).tickSize(0))
+    .call(function(ax){ ax.select('.domain').remove(); ax.selectAll('.tick text').attr('fill','#5a6a78').attr('font-family','Space Mono').attr('font-size',9); });
+
+  var lg = svg.append('g').attr('transform','translate('+m.left+','+(H-6)+')');
+  [['confirmed','rgba(0,229,160,0.75)'],['possible','rgba(255,209,102,0.6)']].forEach(function(pair,i){
+    lg.append('rect').attr('x',i*100).attr('y',-8).attr('width',8).attr('height',8).attr('fill',pair[1]).attr('rx',2);
+    lg.append('text').attr('x',i*100+12).attr('y',0).attr('fill','#5a6a78').attr('font-family','Space Mono').attr('font-size',9).text(pair[0]);
+  });
+}
+
+function renderConfChart(events) {
+  var el = document.getElementById('confChart');
+  el.innerHTML = '';
+  var me  = avg(events.map(function(e){return parseFloat(e.mount_event_conf);}).filter(function(n){return !isNaN(n);}));
+  var mr  = avg(events.map(function(e){return parseFloat(e.mounter_conf);}).filter(function(n){return !isNaN(n);}));
+  var mte = avg(events.filter(function(e){return parseFloat(e.mountee_conf)>0;}).map(function(e){return parseFloat(e.mountee_conf);}));
+  var data = [
+    {label:'Mount Event',value:me, color:'rgba(77,159,255,0.8)'},
+    {label:'Mounter',    value:mr, color:'rgba(0,229,160,0.8)'},
+    {label:'Mountee',    value:mte,color:'rgba(255,107,53,0.8)'},
+  ];
+  var W=el.offsetWidth||300,H=150,m={top:10,right:10,bottom:28,left:36};
+  var w=W-m.left-m.right,h=H-m.top-m.bottom;
+  var svg=d3.select(el).append('svg').attr('width',W).attr('height',H);
+  var g=svg.append('g').attr('transform','translate('+m.left+','+m.top+')');
+  var x=d3.scaleBand().domain(data.map(function(d){return d.label;})).range([0,w]).padding(0.35);
+  var y=d3.scaleLinear().domain([0,1]).range([h,0]);
+  g.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(function(d){return (d*100).toFixed(0)+'%';}).tickSize(-w))
+    .call(function(ax){ax.select('.domain').remove();ax.selectAll('.tick line').attr('stroke','#1f2830');ax.selectAll('.tick text').attr('fill','#5a6a78').attr('font-family','Space Mono').attr('font-size',9);});
+  g.selectAll('.bar').data(data).join('rect')
+    .attr('x',function(d){return x(d.label);}).attr('width',x.bandwidth())
+    .attr('y',function(d){return y(d.value);}).attr('height',function(d){return h-y(d.value);})
+    .attr('fill',function(d){return d.color;}).attr('rx',4);
+  g.selectAll('.val').data(data).join('text')
+    .attr('x',function(d){return x(d.label)+x.bandwidth()/2;}).attr('y',function(d){return y(d.value)-4;})
+    .attr('text-anchor','middle').attr('fill','#e8edf2').attr('font-family','Space Mono').attr('font-size',10)
+    .text(function(d){return isNaN(d.value)?'-':(d.value*100).toFixed(0)+'%';});
+  g.append('g').attr('transform','translate(0,'+h+')').call(d3.axisBottom(x).tickSize(0))
+    .call(function(ax){ax.select('.domain').remove();ax.selectAll('.tick text').attr('fill','#5a6a78').attr('font-family','Space Mono').attr('font-size',9);});
+}
+
+function renderDoughnut(elId, dataset) {
+  var el = document.getElementById(elId);
+  el.innerHTML = '';
+  var W=el.offsetWidth||260, H=170;
+  var cx=W/2, cy=(H-30)/2, R=Math.min(cx,cy)-10, r=R*0.55;
+  var total = d3.sum(dataset,function(d){return d.value;});
+  if (!total) { el.innerHTML='<div class="empty">No data</div>'; return; }
+  var pie = d3.pie().value(function(d){return d.value;}).sort(null);
+  var arc = d3.arc().innerRadius(r).outerRadius(R);
+  var svg = d3.select(el).append('svg').attr('width',W).attr('height',H);
+  var g   = svg.append('g').attr('transform','translate('+cx+','+cy+')');
+  g.selectAll('path').data(pie(dataset)).join('path')
+    .attr('d',arc).attr('fill',function(d){return d.data.color;}).attr('stroke','#0a0d0f').attr('stroke-width',2);
+  g.append('text').attr('text-anchor','middle').attr('dy','0.35em')
+    .attr('fill','#e8edf2').attr('font-family','Space Mono').attr('font-size',18).attr('font-weight',700).text(total);
+  var lg = svg.append('g').attr('transform','translate(0,'+(cy*2+6)+')');
+  dataset.forEach(function(d,i){
+    var x=(W/dataset.length)*i+8;
+    lg.append('rect').attr('x',x).attr('y',0).attr('width',8).attr('height',8).attr('fill',d.color).attr('rx',2);
+    lg.append('text').attr('x',x+12).attr('y',8).attr('fill','#5a6a78').attr('font-family','Space Mono').attr('font-size',9).text(d.label);
+  });
+}
+
+function renderCamChart(events) {
+  var cam1=events.filter(function(e){return e.cam==='CAM1';}).length;
+  var cam2=events.filter(function(e){return e.cam==='CAM2';}).length;
+  var both=events.filter(function(e){return e.cam==='CAM1+CAM2';}).length;
+  renderDoughnut('camChart',[
+    {label:'CAM1', value:cam1,color:'rgba(0,229,160,0.85)'},
+    {label:'CAM2', value:cam2,color:'rgba(77,159,255,0.85)'},
+    {label:'Fused',value:both,color:'rgba(255,107,53,0.85)'},
+  ]);
+}
+
+function renderIdChart(events) {
+  var methods={};
+  events.forEach(function(e){
+    [e.mounter_id_method,e.mountee_id_method].forEach(function(m){
+      if(!m||m==='pending'||m==='not_detected') return;
+      methods[m]=(methods[m]||0)+1;
+    });
+  });
+  var colours=['rgba(0,229,160,0.85)','rgba(255,209,102,0.85)','rgba(77,159,255,0.85)','rgba(255,107,53,0.85)'];
+  renderDoughnut('idChart',Object.entries(methods).map(function(entry,i){
+    return {label:entry[0],value:entry[1],color:colours[i%colours.length]};
+  }));
+}
+
+// ─── Collar leaderboards ──────────────────────
+function collarBase(id) {
+  if (!id || id === 'N/A' || id === 'not_detected') return null;
+  return id.replace(/\(.*\)/,'').trim();
+}
+
+function renderLB(elId, counts, total) {
+  var el     = document.getElementById(elId);
+  var sorted = Object.entries(counts).sort(function(a,b){return b[1]-a[1];});
+  var maxVal = sorted[0] ? sorted[0][1] : 1;
+  if (!sorted.length) { el.innerHTML='<div class="empty" style="padding:20px">No data</div>'; return; }
+  el.innerHTML = sorted.slice(0,6).map(function(entry,i){
+    var id=entry[0], count=entry[1];
+    var key=id.replace(/[^a-z_]/gi,'').toLowerCase();
+    var col=COLLAR_COLOURS[key]||'#8a9bb0';
+    var pctStr=total?' ('+(count/total*100).toFixed(0)+'%)':'';
+    return '<li class="lb-item">' +
+      '<span class="lb-rank">#'+(i+1)+'</span>' +
+      '<span class="lb-swatch" style="background:'+col+'"></span>' +
+      '<span class="lb-name">'+id+'</span>' +
+      '<div class="lb-bar-wrap"><div class="lb-bar" style="width:'+(count/maxVal*100).toFixed(0)+'%;background:'+col+'"></div></div>' +
+      '<span class="lb-count">'+count+pctStr+'</span>' +
+      '</li>';
+  }).join('');
+}
+
+function renderCollarFrequency(elId, events) {
+  var counts = {};
+  events.forEach(function(e) {
+    [e.mounter_id, e.mountee_id].forEach(function(id) {
+      var base = collarBase(id);
+      if (!base || base === 'mixed') return;
+      counts[base] = (counts[base]||0) + 1;
+    });
+  });
+  renderLB(elId, counts, events.length * 2);
+}
+
+function renderEstrusLeaderboard(elId, events) {
+  var counts = {};
+  events.filter(function(e){return e.event_type==='confirmed';}).forEach(function(e) {
+    var base = collarBase(e.mountee_id);
+    if (!base || base === 'mixed') return;
+    counts[base] = (counts[base]||0) + 1;
+  });
+  renderLB(elId, counts, null);
+}
+
+// ─────────────────────────────────────────────
+//  LOG TABLE + REVIEW
+// ─────────────────────────────────────────────
+
+// review state stored in memory: { clip_filename: 'pending'|'farmer_confirmed'|'rejected' }
+var reviewState   = {};
+var logFilter     = 'all';
+var currentReview = null;   // event being reviewed in modal
+
+async function refreshLog() {
+  var events = allEvents;
+  if (!events.length) {
+    try {
+      var res = await fetch('/api/events');
+      var d   = await res.json();
+      events = d.events || [];
+      allEvents  = events;
+    } catch(e) { events = getSampleData(); }
+  }
+  rawLogData = events;
+  updateReviewCounts();
+  renderLogTable(applyLogFilter(rawLogData));
+}
+
+function setLogFilter(filter, btn) {
+  logFilter = filter;
+  document.querySelectorAll('.log-filter-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  filterLog();
+}
+
+function applyLogFilter(events) {
+  if (logFilter === 'all') return events;
+  return events.filter(function(e) {
+    var key    = e.clip_filename || e.timestamp;
+    var status = reviewState[key] || 'pending';
+    return status === logFilter;
+  });
+}
+
+function filterLog() {
+  var q        = document.getElementById('logSearch').value.toLowerCase();
+  var filtered = rawLogData.filter(function(e){ return JSON.stringify(e).toLowerCase().includes(q); });
+  renderLogTable(applyLogFilter(filtered));
+}
+
+function updateReviewCounts() {
+  var pending = 0, confirmed = 0, rejected = 0;
+  rawLogData.forEach(function(e) {
+    var key    = e.clip_filename || e.timestamp;
+    var status = reviewState[key] || 'pending';
+    if (status === 'pending')           pending++;
+    else if (status === 'farmer_confirmed') confirmed++;
+    else if (status === 'rejected')      rejected++;
+  });
+  document.getElementById('countPending').textContent   = pending;
+  document.getElementById('countConfirmed').textContent = confirmed;
+  document.getElementById('countRejected').textContent  = rejected;
+}
+
+function getReviewStatus(e) {
+  var key = e.clip_filename || e.timestamp;
+  return reviewState[key] || 'pending';
+}
+
+function renderLogTable(events) {
+  var tbody = document.getElementById('logBody');
+  if (!events || !events.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty">No events found</div></td></tr>';
+    return;
+  }
+
+  // Store indexed lookup so onclick can use a simple integer
+  window._logEvents = events.slice().reverse();
+
+  var rows = [];
+  for (var i = 0; i < window._logEvents.length; i++) {
+    var e      = window._logEvents[i];
+    var status = getReviewStatus(e);
+    var badgeClass = e.fused === 'True' ? 'badge-fused' :
+                     e.event_type === 'confirmed' ? 'badge-confirmed' : 'badge-possible';
+    var conf  = parseFloat(e.mount_event_conf);
+    var confW = isNaN(conf) ? 0 : Math.round(conf * 60);
+    var t     = (e.timestamp || '').slice(11, 22) || e.timestamp || '-';
+
+    var statusLabel = status === 'farmer_confirmed' ? '&#10003; Confirmed'
+                    : status === 'rejected'         ? '&#10007; Rejected'
+                    : '&#8987; Pending';
+    var reviewBadge = '<span class="review-badge review-' + status + '">' + statusLabel + '</span>';
+
+    var hasClip = e.clip_filename && e.clip_filename !== '-';
+    var watchBtn = hasClip
+      ? '<button class="btn-watch" onclick="openModal(' + i + ')">&#9654; Watch</button>'
+      : '<span style="color:var(--muted);font-size:10px;font-family:var(--mono)">no clip</span>';
+
+    rows.push(
+      '<tr>' +
+      '<td style="font-family:var(--mono);font-size:11px;color:var(--muted)">' + t + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px">' + (e.cam || '-') + '</td>' +
+      '<td><span class="event-badge ' + badgeClass + '">' + (e.event_type || '').toUpperCase() + '</span></td>' +
+      '<td><div class="conf-bar"><div class="conf-fill" style="width:' + confW + 'px"></div><span style="font-family:var(--mono);font-size:10px;color:var(--muted)">' + pct(e.mount_event_conf) + '</span></div></td>' +
+      '<td>' + collarBadge(e.mounter_id) + '</td>' +
+      '<td>' + collarBadge(e.mountee_id) + '</td>' +
+      '<td style="font-family:var(--mono);font-size:11px;color:' + (e.fused === 'True' ? 'var(--accent3)' : 'var(--muted)') + '">' + (e.fused === 'True' ? 'YES' : '-') + '</td>' +
+      '<td>' + watchBtn + '</td>' +
+      '<td>' + reviewBadge + '</td>' +
+      '</tr>'
+    );
+  }
+  tbody.innerHTML = rows.join('');
+}
+
+function openModal(idx) {
+  var e = window._logEvents && window._logEvents[idx];
+  if (!e) return;
+  currentReview = e;
+
+  var hasClip = e.clip_filename && e.clip_filename !== '-';
+
+  document.getElementById('modalTime').textContent    = (e.timestamp || '-').slice(11,22) || e.timestamp || '-';
+  document.getElementById('modalCam').textContent     = e.cam || '-';
+  document.getElementById('modalMounter').innerHTML   = collarBadge(e.mounter_id);
+  document.getElementById('modalMountee').innerHTML   = collarBadge(e.mountee_id);
+  document.getElementById('modalConf').textContent    = pct(e.mount_event_conf);
+  document.getElementById('modalClip').textContent    = hasClip ? e.clip_filename : 'No clip available';
+  document.getElementById('modalOpenBtn').style.display = hasClip ? 'flex' : 'none';
+
+  var badgeClass = e.fused === 'True' ? 'badge-fused' :
+                   e.event_type === 'confirmed' ? 'badge-confirmed' : 'badge-possible';
+  document.getElementById('modalType').innerHTML =
+    '<span class="event-badge ' + badgeClass + '">' + (e.event_type||'').toUpperCase() + (e.fused==='True' ? ' FUSED' : '') + '</span>';
+
+  document.getElementById('clipModal').style.display = 'flex';
+}
+
+async function openInPlayer() {
+  if (!currentReview || !currentReview.clip_filename) return;
+  var btn = document.getElementById('modalOpenBtn');
+  btn.textContent = 'Opening...';
+  btn.disabled = true;
+  try {
+    var res  = await fetch('/api/open_clip', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ clip: currentReview.clip_filename })
+    });
+    var data = await res.json();
+    if (!data.ok) {
+      alert('Could not open clip: ' + (data.error || 'unknown error'));
+    }
+  } catch(e) {
+    alert('Backend unreachable');
+  }
+  btn.innerHTML = '&#9654; &nbsp;Open Clip in Video Player';
+  btn.disabled = false;
+}
+
+function closeModal() {
+  document.getElementById('clipModal').style.display = 'none';
+  currentReview = null;
+}
+
+async function reviewEvent(decision) {
+  if (!currentReview) return;
+  var key = currentReview.clip_filename || currentReview.timestamp;
+  reviewState[key] = decision;
+
+  // Tell backend to move/copy the clip if confirmed
+  if (decision === 'farmer_confirmed' && currentReview.clip_filename) {
+    try {
+      await fetch('/api/review', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ clip: currentReview.clip_filename, decision: decision })
+      });
+    } catch(e) {}
+  }
+
+  closeModal();
+  updateReviewCounts();
+  renderLogTable(applyLogFilter(rawLogData));
+}
+
+// Close modal on backdrop click
+document.getElementById('clipModal').addEventListener('click', function(ev) {
+  if (ev.target === this) closeModal();
+});
+
+// ─────────────────────────────────────────────
+//  SAMPLE DATA
+// ─────────────────────────────────────────────
+function getSampleData() {
+  return [
+    {timestamp:'2025-05-12 22:53:01',cam:'CAM2',event_type:'possible',mount_event_conf:'0.801',mounter_conf:'0.798',mountee_conf:'0',mounter_id:'green_collar',mounter_id_method:'collar',mountee_id:'N/A',mountee_id_method:'not_detected',fused:'False',clip_filename:'mount_possible_CAM2.mp4'},
+    {timestamp:'2025-05-12 22:54:12',cam:'CAM1+CAM2',event_type:'confirmed',mount_event_conf:'0.873',mounter_conf:'0.901',mountee_conf:'0.590',mounter_id:'green_collar',mounter_id_method:'collar',mountee_id:'blue_collar',mountee_id_method:'collar',fused:'True',clip_filename:'mount_confirmed_fused.mp4'},
+    {timestamp:'2025-05-12 22:54:50',cam:'CAM1+CAM2',event_type:'confirmed',mount_event_conf:'0.890',mounter_conf:'0.920',mountee_conf:'0.610',mounter_id:'red_collar',mounter_id_method:'collar',mountee_id:'blue_collar',mountee_id_method:'collar',fused:'True',clip_filename:'mount_confirmed_fused2.mp4'},
+    {timestamp:'2025-05-12 23:01:30',cam:'CAM1',event_type:'confirmed',mount_event_conf:'0.850',mounter_conf:'0.880',mountee_conf:'0.450',mounter_id:'red_collar',mounter_id_method:'collar',mountee_id:'mixed',mountee_id_method:'coat_colour',fused:'False',clip_filename:'mount_confirmed_CAM1.mp4'},
+    {timestamp:'2025-05-12 23:05:10',cam:'CAM2',event_type:'possible',mount_event_conf:'0.734',mounter_conf:'0.810',mountee_conf:'0',mounter_id:'blue_collar',mounter_id_method:'collar',mountee_id:'N/A',mountee_id_method:'not_detected',fused:'False',clip_filename:'mount_possible_CAM2_2.mp4'},
+  ];
+}
+</script>
+</body>
+</html>

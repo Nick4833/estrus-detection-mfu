@@ -1,0 +1,28 @@
+# ── Model weights (ship as GitHub Release assets / archived via Zenodo) ──
+models/*.pt
+*.pt
+*.onnx
+*.engine
+
+# ── Runtime outputs ──
+clips/
+logs/
+*.mp4
+*.avi
+*.mkv
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# ── OS / editor cruft ──
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp

@@ -1,0 +1,30 @@
+======================================================================
+SEED = 42 | 10,000 bootstrap iterations
+======================================================================
+
+--- Bootstrap CIs: proportions ---
+Event-level recall              :  81.8%  (95% CI 63.6- 95.5%)   [18/22]
+Per-camera recall               :  50.0%  (95% CI 27.3- 68.2%)   [11/22]
+Mounter ID accuracy             :  91.7%  (95% CI 75.0-100.0%)   [11/12]
+Mountee ID accuracy             :  58.3%  (95% CI 33.3- 83.3%)   [7/12]
+Overall ID accuracy             :  75.0%  (95% CI 58.3- 91.7%)   [18/24]
+
+--- Bootstrap CIs: precision / recall / F1 (joint) ---
+
+Confirmed only  (TP=12, FP=5, FN=6)
+   Precision: 0.706  (95% CI 0.47-0.90)
+   Recall   : 0.667  (95% CI 0.44-0.88)
+   F1       : 0.686  (95% CI 0.47-0.85)
+
+Confirmed + possible  (TP=15, FP=9, FN=3)
+   Precision: 0.625  (95% CI 0.43-0.82)
+   Recall   : 0.833  (95% CI 0.65-1.00)
+   F1       : 0.714  (95% CI 0.54-0.85)
+
+--- Exact Poisson CIs: false-positive rates ---
+Confirmed-tier FP rate          : 0.10 FP/h  (95% CI 0.00-0.53)   [1 in 10.5 h]
+Overall FP rate                 : 0.86 FP/h  (95% CI 0.39-1.63)   [9 in 10.5 h]
+
+--- Exact McNemar test: single-camera vs fused recall ---
+b=7, c=0  ->  exact two-sided p = 0.0156
+======================================================================

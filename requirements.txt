@@ -1,0 +1,22 @@
+# CowEstrus — Python dependencies
+# Tested on NVIDIA Jetson Orin Nano (JetPack / L4T) with GPU (CUDA) inference.
+#
+# IMPORTANT for reproducibility: pin these to the exact versions you tested with.
+# Regenerate exact pins from your environment with:
+#     pip freeze | grep -Ei 'ultralytics|torch|opencv|numpy|scipy|flask'
+# and paste the results below, replacing the >= floors.
+
+# --- Detection / inference ---
+ultralytics>=8.3.0          # YOLO26n mount + collar models  (PIN to tested version)
+torch>=2.1.0                # imported dynamically by the detector for device selection
+# torchvision              # install the build matching your torch / JetPack
+
+# --- Video I/O ---
+opencv-python>=4.8.0
+
+# --- Numerics / statistics (compute_cis.py) ---
+numpy>=1.24.0
+scipy>=1.10.0
+
+# --- Dashboard backend ---
+flask>=3.0.0

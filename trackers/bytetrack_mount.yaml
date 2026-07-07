@@ -1,0 +1,11 @@
+# Custom ByteTrack config for cattle mount detection.
+# Tuned to keep track IDs stable through brief detection gaps,
+# which is critical for the "mount-event" class which flickers
+# frame-to-frame even when the underlying behavior is sustained.
+tracker_type: bytetrack
+track_high_thresh: 0.45   # first association — keep modest so 0.5-0.7 dets associate confidently
+track_low_thresh:  0.10   # second-stage association — wider net to recover dets across gaps
+new_track_thresh: 0.55    # require reasonably confident det to *start* a new track
+track_buffer: 90          # frames to keep a lost track alive (default 30 → 90 ≈ 6 s @ 15 fps)
+match_thresh: 0.85        # IoU match threshold for association
+fuse_score: True
