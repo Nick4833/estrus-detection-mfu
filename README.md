@@ -1,21 +1,6 @@
-# REAL-TIME AUTOMATED ESTRUS BEHAVIOR DETECTION AND ANALYSIS FOR NORTHERN THAI FARM: A MULTI-CAMERA, COMPUTER VISION SYSTEM
+# Event-level detection of mounting behaviour with cross-camera confirmation for continuous estrus monitoring in cattle
 
-A dual-camera computer-vision pipeline for automated detection of cattle mounting
-(estrus) behavior on a smallholder farm, running in real time on an **NVIDIA Jetson
-Orin Nano** edge device. The system uses **YOLO26n** detectors for mounting events and
-collar-based individual identification, a two-tier (`possible` / `confirmed`) confirmation
-scheme, and cross-camera temporal fusion to combine simultaneous views of the same event.
-
-This repository accompanies the paper:
-
-> **Real-Time Automated Estrus Behavior Detection and Analysis for a Northern Thai Farm:
-> A Multi-Camera Computer Vision System** — Wicha, S. *et al.*, submitted to *IEEE Access*, 2026.
-
-It contains the detection pipeline, the review dashboard, the evaluation records, and the
-statistics script that reproduces every confidence interval and significance test reported
-in the paper.
-
----
+A mullti-camera computer-vision pipeline for automated detection of cattle mounting (estrus) behavior on a smallholder farm, running in real time on an **NVIDIA Jetson Orin Nano** edge device. The system uses **YOLO26n** detectors for mounting events and collar-based individual identification, a two-tier (`possible` / `confirmed`) confirmation scheme, and cross-camera temporal fusion to combine simultaneous views of the same event.
 
 ## Repository layout
 
