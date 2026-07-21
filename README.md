@@ -26,7 +26,7 @@ estrus-detection-mfu/
 ├── dashboard.html                                 # dashboard frontend
 ├── compute_cis.py                                 # reproduces all CIs / significance tests
 ├── trackers/
-│   └── bytetrack_mount.yaml                        # tracker config (required by detector)
+│   └── bytetrack_mount.yaml                        # tracker config (not required by detector early testing)
 ├── models/                                         # model weights — see "Models" below
 ├── data/                                           # evaluation records + data dictionary
 │   ├── CONTROLLED_RECALL_TEST.csv
