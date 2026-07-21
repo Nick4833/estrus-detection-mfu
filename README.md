@@ -129,18 +129,3 @@ console run is kept in `results/reproducibility_log.txt` as a reproducibility ar
 > detection logs and manual scoring only — **raw farm video is withheld for privacy reasons.**
 
 ---
-
-## Citation
-
-If you use this software or data, please cite the repository (see `CITATION.cff`) and the
-associated *IEEE Access* paper.
-
-## License
-
-- **Code** — MIT License (`LICENSE`).
-- **Data** (`data/`) — Creative Commons Attribution 4.0 International, CC BY 4.0 (`data/LICENSE`).
-
-## Acknowledgments
-
-Developed at Mae Fah Luang University, Chiang Rai, Thailand. We thank the participating farm
-for access to the recording site.
