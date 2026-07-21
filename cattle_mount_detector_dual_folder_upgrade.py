@@ -1,60 +1,3 @@
-"""
-Cattle Mount Detection & Collar Identification System — Dual-Camera Mode
-=========================================================================
-Processes video footage from CAM1 and CAM2 that record the
-same mounting events with approximately 10 seconds offset at the start.
-
-Architecture
-────────────
-  • Paired simultaneous processing — cam1_clip[i] and cam2_clip[i] are stepped
-    frame-by-frame together in a single loop.  Both cameras see the same wall-
-    clock instant so event timestamps are directly comparable with no drift.
-    Leftover clips (if one folder has more files) are processed solo afterwards.
-
-  • Two trigger tiers:
-      CONFIRMED — mounter + mountee co-present for n consecutive frames
-      POSSIBLE  — mounter + mount-event co-present for n consecutive frames
-    Both are strict same-frame co-occurrence; n = round(MOUNT_CONFIRM_SEC * fps).
-    Possible is suppressed while confirmed is actively accumulating.
-
-  • Fusion (confirmed-only) — after each paired run, events within
-    FUSION_WINDOW_SEC are matched across cameras.  A fused clip is written to
-    clips/fused/ ONLY when the merged result is confirmed (i.e. at least one
-    camera produced a confirmed event).  Pairs where both cameras are possible
-    remain as two separate clips in clips/possible/.
-
-  • Best collar ID — per _best_id(): collar > coat_colour, then higher conf.
-
-  • CSV — columns: fused (bool), fused_with_clip (str).
-
-Output layout
-─────────────
-  clips/
-    confirmed/   individual per-camera confirmed clips
-    possible/    individual per-camera possible clips
-    fused/       side-by-side confirmed-only fused clips
-
-Usage
-─────
-    # Two folders (original mode)
-    python cattle_mount_detector_dual_folder.py \\
-        --cam1 footage/cam1 --cam2 footage/cam2
-
-    # Two single video files
-    python cattle_mount_detector_dual_folder.py \\
-        --cam1 footage/cam1/clip.mp4 --cam2 footage/cam2/clip.mp4
-
-    # Mix: folder + single file
-    python cattle_mount_detector_dual_folder.py \\
-        --cam1 footage/cam1 --cam2 footage/cam2/clip.mp4
-
-    # Single camera (file or folder)
-    python cattle_mount_detector_dual_folder.py --cam1 footage/cam1
-
-    python cattle_mount_detector_dual_folder.py \\
-        --cam1 footage/cam1 --cam2 footage/cam2 \\
-        --fusion-window 20 --mount-conf 0.6
-"""
 
 from __future__ import annotations
 
@@ -73,9 +16,6 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 
-# ─────────────────────────────────────────────
-#  CONFIG — edit here or override via CLI args
-# ─────────────────────────────────────────────
 
 MOUNT_MODEL_PATH  = "models/mount_best.pt"
 COLLAR_MODEL_PATH = "models/collar_best.pt"
@@ -83,13 +23,9 @@ COLLAR_MODEL_PATH = "models/collar_best.pt"
 MOUNT_CONF  = 0.5
 COLLAR_CONF = 0.1
 
-# Inference optimisation
 DEVICE      = "cuda" if __import__("torch").cuda.is_available() else "cpu"
-MOUNT_IMGSZ = 640   # reduce to 416 for more speed at some accuracy cost
-USE_HALF    = DEVICE == "cuda"  # FP16 inference on GPU only
-# Test-time augmentation for the mount model.  Costs ~2× inference time, but
-# can recover small/flickery classes (notably "mount-event") that the single-
-# pass detector misses on alternating frames.  See --mount-augment CLI flag.
+MOUNT_IMGSZ = 640  
+USE_HALF    = DEVICE == "cuda"  
 MOUNT_AUGMENT = False
 COLLAR_CLASSES = {"blue_collar", "green_collar", "red_collar", "yellow_collar"}
 HEAD_CLASS     = "head"
@@ -102,29 +38,23 @@ CLASS_CONF = {
 }
 
 CLASS_CONF_POSSIBLE = {
-    "mount-event": 0.85,
-    "mounter":     0.85,
+    "mount-event": 0.8,
+    "mounter":     0.8,
 }
 
 ROI_1 = (0.0, 0.0, 1.0, 1.0)
 ROI_2 = (0.0, 0.0, 1.0, 1.0)
 
-MOUNT_CONFIRM_SEC      = 0.1
-MOUNT_WINDOW_SEC       = 1.0   # how long to wait for mountee upgrade after possible fires
-MOUNTEE_CONFIRM_FRAMES = 4     # mountee frames alongside mount-event or mounter → upgrade
+MOUNT_CONFIRM_SEC      = 0.2
+MOUNT_WINDOW_SEC       = 1.0   
+MOUNTEE_CONFIRM_FRAMES = 4     
 COOLDOWN_SEC           = 30.0
 
 CLIP_PRE_BUFFER_SEC  = 5
 CLIP_POST_BUFFER_SEC = 5
 
-# Maximum wall-clock gap (seconds) for two cross-camera events to be fused.
-# Should be >= the maximum start-time offset between the two cameras (~10 s)
-# plus the expected duration variability.
 FUSION_WINDOW_SEC = 15.0
 
-# Box shrink for mounter/mountee detections (0.0 = no shrink, 0.2 = 20% inward per side)
-# Reduces visual overlap between heavily overlapping animal detections.
-# Only applied to mounter and mountee classes, not mount-event.
 ANIMAL_BOX_SHRINK = 0
 
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mkv", ".mov", ".mts", ".m4v"}
@@ -135,9 +65,9 @@ CLIPS_POSSIBLE_DIR   = CLIPS_DIR / "possible"
 LOGS_DIR             = Path("logs")
 LOG_FILE             = LOGS_DIR / "mount_log.csv"
 
-# ─────────────────────────────────────────────
-#  LOGGING SETUP
-# ─────────────────────────────────────────────
+
+
+
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -146,33 +76,27 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ─────────────────────────────────────────────
-#  DIRECTORY INITIALISATION
-# ─────────────────────────────────────────────
 
 for _d in (CLIPS_CONFIRMED_DIR, CLIPS_POSSIBLE_DIR, LOGS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
-# ─────────────────────────────────────────────
-#  EVENT RECORD  (replaces live CSV writes in Pass 1)
-# ─────────────────────────────────────────────
 
 @dataclass
 class MountEvent:
     """Holds everything about one detected mounting event from a single camera."""
-    # Identity
-    cam:              str   = ""       # "CAM1" or "CAM2"
+    
+    cam:              str   = ""      
     video_path:       str   = ""
-    timestamp:        str   = ""       # wall timestamp string at trigger
-    wall_epoch:       float = 0.0      # same, as Unix epoch for arithmetic
+    timestamp:        str   = ""       
+    wall_epoch:       float = 0.0      
 
-    # Detections
-    event_type:       str   = ""       # "confirmed" or "possible"
+    
+    event_type:       str   = ""      
     mount_event_conf: float = 0.0
     mounter_conf:     float = 0.0
     mountee_conf:     float = 0.0
 
-    # Identification results
+    
     mounter_id:       str         = "N/A"
     mounter_id_conf:  float | str = "N/A"
     mounter_id_method: str        = ""
@@ -180,28 +104,28 @@ class MountEvent:
     mountee_id_conf:  float | str = "N/A"
     mountee_id_method: str        = ""
 
-    # Clip
+    
     clip_name:        str   = ""
     clip_path:        Path  = field(default_factory=Path)
-    frames:           list  = field(default_factory=list)   # [(ann_frame, ts), ...]
-    # Stored for deferred collar ID in _finalise
-    trigger_dets:     dict  = field(default_factory=dict)   # mount_dets at trigger
-    trigger_raw_frames: list = field(default_factory=list)  # raw frames for voting
-    best_mountee_det: dict | None = None  # best mountee det seen during recording
-    best_mountee_det: dict | None = None  # best mountee det seen during recording (for possible→confirmed upgrades)
+    frames:           list  = field(default_factory=list)   
+    
+    trigger_dets:     dict  = field(default_factory=dict)   
+    trigger_raw_frames: list = field(default_factory=list)  
+    best_mountee_det: dict | None = None  
+    best_mountee_det: dict | None = None  
     fps:              float = 25.0
 
-    # Fusion bookkeeping
+    
     fused:            bool  = False
     fused_with_clip:  str   = ""
-    # Per-camera detection confidences (populated on fused events only)
+    
     cam1_mount_event_conf: float = 0.0
     cam1_mounter_conf:     float = 0.0
     cam1_mountee_conf:     float = 0.0
     cam2_mount_event_conf: float = 0.0
     cam2_mounter_conf:     float = 0.0
     cam2_mountee_conf:     float = 0.0
-    # Per-camera collar ID results (populated on fused events only)
+    
     cam1_mounter_id:        str         = ""
     cam1_mounter_id_conf:   float | str = ""
     cam1_mountee_id:        str         = ""
@@ -210,7 +134,7 @@ class MountEvent:
     cam2_mounter_id_conf:   float | str = ""
     cam2_mountee_id:        str         = ""
     cam2_mountee_id_conf:   float | str = ""
-    # Cross-camera consensus best guess
+    
     possible_mounter:       str         = ""
     possible_mountee:       str         = ""
 
@@ -228,9 +152,9 @@ class MountEvent:
         return float(v) if isinstance(v, float) else 0.0
 
 
-# ─────────────────────────────────────────────
-#  CSV WRITER
-# ─────────────────────────────────────────────
+
+
+
 
 CSV_HEADER = [
     "timestamp", "cam", "video_source", "event_type",
@@ -259,7 +183,7 @@ def write_csv(events: list[MountEvent]) -> None:
     with open(LOG_FILE, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_HEADER)
         if not file_exists:
-            writer.writeheader()  # only write header on first run
+            writer.writeheader()  
         for ev in events:
             writer.writerow({
                 "timestamp":          ev.timestamp,
@@ -269,7 +193,7 @@ def write_csv(events: list[MountEvent]) -> None:
                 "mount_event_conf":   f"{ev.mount_event_conf:.3f}",
                 "mounter_conf":       f"{ev.mounter_conf:.3f}",
                 "mountee_conf":       f"{ev.mountee_conf:.3f}",
-                # For fused: per-camera values; for individual: own conf in matching cam column
+                
                 "cam1_mount_event_conf": f"{ev.cam1_mount_event_conf:.3f}" if ev.fused else (f"{ev.mount_event_conf:.3f}" if "CAM1" in ev.cam else ""),
                 "cam1_mounter_conf":     f"{ev.cam1_mounter_conf:.3f}"     if ev.fused else (f"{ev.mounter_conf:.3f}"     if "CAM1" in ev.cam else ""),
                 "cam1_mountee_conf":     f"{ev.cam1_mountee_conf:.3f}"     if ev.fused else (f"{ev.mountee_conf:.3f}"     if "CAM1" in ev.cam else ""),
@@ -298,9 +222,9 @@ def write_csv(events: list[MountEvent]) -> None:
             })
     log.info("CSV written → %s  (%d events)", LOG_FILE, len(events))
 
-# ─────────────────────────────────────────────
-#  CLIP WRITER
-# ─────────────────────────────────────────────
+
+
+
 
 def write_clip(
     frames_v1: list,
@@ -343,9 +267,9 @@ def write_clip(
     log.info("Clip saved → %s  (%d frames @ %.1f fps)",
              clip_path.name, len(frames_v1), fps)
 
-# ─────────────────────────────────────────────
-#  ANNOTATION HELPERS
-# ─────────────────────────────────────────────
+
+
+
 
 def _colour_for_class(class_name: str) -> tuple[int, int, int]:
     palette = {
@@ -400,12 +324,12 @@ def annotate_frame(
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1, cv2.LINE_AA)
     return out
 
-# ─────────────────────────────────────────────
-#  INFERENCE HELPERS
-# ─────────────────────────────────────────────
 
-# Path to the custom ByteTrack config (see trackers/bytetrack_mount.yaml).
-# Resolved relative to this script so it works regardless of CWD.
+
+
+
+
+
 MOUNT_TRACKER_CFG = str(Path(__file__).parent / "trackers" / "bytetrack_mount.yaml")
 
 
@@ -433,7 +357,7 @@ def run_mount_tracking(
     the tracker mid-frame.
     """
     thresholds = conf_map if conf_map is not None else CLASS_CONF
-    # Grayscale → 3-channel (one conversion, cached across calls via _gray_cache)
+    
     if _gray_cache is not None and _gray_cache[0] is not None:
         gray_bgr = _gray_cache[0]
     else:
@@ -472,10 +396,10 @@ def run_mount_tracking(
         if not (roi[0] <= cx <= roi[2] and roi[1] <= cy <= roi[3]):
             continue
 
-        # Track ID — available when tracker assigns one
+        
         track_id = int(boxes.id[i]) if boxes.id is not None else -1
 
-        # Shrink mounter/mountee boxes inward to reduce overlap
+        
         if cls_name in ("mounter", "mountee") and ANIMAL_BOX_SHRINK > 0.0:
             x1, y1, x2, y2 = xyxy
             dx = (x2 - x1) * ANIMAL_BOX_SHRINK
@@ -494,7 +418,7 @@ def run_mount_tracking_multi(
     roi: tuple[float, float, float, float],
     conf_maps: dict[str, dict[str, float]],
     _gray_cache: list | None = None,
-    tracker_slot: list | None = None,  # kept for signature compat; unused
+    tracker_slot: list | None = None,  
 ) -> dict[str, dict[str, list[dict]]]:
     """
     Stateless multi-view inference for the mount model.
@@ -531,7 +455,7 @@ def run_mount_tracking_multi(
         dict mapping the key of each conf_map to its filtered detection dict
         (same shape as the old run_mount_tracking()'s return value).
     """
-    # Grayscale → 3-channel (cached across calls within one frame)
+    
     if _gray_cache is not None and _gray_cache[0] is not None:
         gray_bgr = _gray_cache[0]
     else:
@@ -540,9 +464,9 @@ def run_mount_tracking_multi(
         if _gray_cache is not None:
             _gray_cache[0] = gray_bgr
 
-    # Lowest threshold across all requested views — gives the model
-    # everything any caller might want, while per-view filters below
-    # apply the actual per-class cutoffs.
+    
+    
+    
     all_thresholds = [
         v for cmap in conf_maps.values() for v in cmap.values()
     ]
@@ -559,7 +483,7 @@ def run_mount_tracking_multi(
         verbose=False,
     )
 
-    # Initialise empty output per requested view
+    
     out: dict[str, dict[str, list[dict]]] = {k: {} for k in conf_maps}
 
     if not results or results[0].boxes is None:
@@ -578,7 +502,7 @@ def run_mount_tracking_multi(
         if not (roi[0] <= cx <= roi[2] and roi[1] <= cy <= roi[3]):
             continue
 
-        # Apply box shrink once (same shrunk box is shared across views)
+        
         if cls_name in ("mounter", "mountee") and ANIMAL_BOX_SHRINK > 0.0:
             x1, y1, x2, y2 = xyxy
             dx = (x2 - x1) * ANIMAL_BOX_SHRINK
@@ -588,12 +512,12 @@ def run_mount_tracking_multi(
         det = {"class_name": cls_name, "conf": conf, "xyxy": xyxy,
                "track_id": -1}
 
-        # Distribute this detection into every view whose per-class
-        # threshold it clears.
+        
+        
         for view_name, cmap in conf_maps.items():
             cutoff = cmap.get(cls_name)
             if cutoff is None:
-                continue  # class not requested in this view
+                continue  
             if conf < cutoff:
                 continue
             out[view_name].setdefault(cls_name, []).append(det)
@@ -601,7 +525,7 @@ def run_mount_tracking_multi(
     return out
 
 
-# Keep old name as alias so collar/coco paths that still use predict() are unaffected
+
 def run_mount_inference(
     frame: np.ndarray,
     model: YOLO,
@@ -724,14 +648,14 @@ def _detect_head_and_collar(
         if not collars:
             return None, 0.0, None, None
 
-        # Best head = highest confidence
+        
         best_head = max(heads, key=lambda d: d["conf"]) if heads else None
         head_abs  = None
         if best_head:
             hx1, hy1, hx2, hy2 = best_head["xyxy"]
             head_abs = (ox + hx1, oy + hy1, ox + hx2, oy + hy2)
 
-        # Find collar whose centre is inside the head bbox
+        
         winner = None
         if best_head:
             hx1, hy1, hx2, hy2 = best_head["xyxy"]
@@ -741,7 +665,7 @@ def _detect_head_and_collar(
             if inside:
                 winner = max(inside, key=lambda d: d["conf"])
 
-        # Fallback: best collar anywhere in animal crop
+        
         if winner is None:
             winner = max(collars, key=lambda d: d["conf"])
 
@@ -789,7 +713,7 @@ def vote_collar(
                 best_collar_xyxy = collar_abs
             continue
 
-        # Coat colour fallback for this frame
+        
         try:
             crop, _ = _crop_box(f, ref_xyxy)
             coat_votes[_dominant_coat_colour(crop)] += 1
@@ -821,7 +745,7 @@ def identify_animal(
     if cls_name is not None:
         return cls_name, conf, "collar", collar_abs
 
-    # Coat colour fallback
+    
     try:
         crop, _ = _crop_box(frame, animal_xyxy)
         return _dominant_coat_colour(crop), "N/A", "coat_colour", None
@@ -830,9 +754,9 @@ def identify_animal(
 
     return "N/A", "N/A", "N/A", None
 
-# ─────────────────────────────────────────────
-#  VIDEO PROCESSOR — one per video file
-# ─────────────────────────────────────────────
+
+
+
 
 class VideoProcessor:
     """
@@ -855,12 +779,12 @@ class VideoProcessor:
         self.roi               = roi
         self.mount_model       = mount_model
         self.collar_model      = collar_model
-        self.video_start_epoch = video_start_epoch   # wall-clock epoch of frame 0
+        self.video_start_epoch = video_start_epoch   
 
         self._is_rtsp = str(video_path).lower().startswith("rtsp://")
         self.cap = cv2.VideoCapture(video_path)
         if self._is_rtsp:
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimise latency
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  
         if not self.cap.isOpened():
             raise FileNotFoundError(f"Cannot open video: {video_path}")
 
@@ -875,18 +799,18 @@ class VideoProcessor:
         self._confirm_frames_needed = max(1, round(MOUNT_CONFIRM_SEC * self.fps))
         self._window_frames_total   = max(1, round(MOUNT_WINDOW_SEC * self.fps))
 
-        # Co-occurrence counters (strict same-frame, reset on any miss).
-        # confirmed: mount-event + mounter + mountee all present.
-        # possible:  mount-event + mounter present (no mountee).
+        
+        
+        
         self._confirmed_cooccur_frames: int = 0
         self._possible_cooccur_frames:  int = 0
 
-        # Upgrade window state — opened when possible trigger fires.
+        
         self._in_window:           bool = False
         self._window_frames_left:  int  = 0
-        self._mountee_upgrade_count: int = 0   # mountee alongside mount-event or mounter
+        self._mountee_upgrade_count: int = 0   
 
-        # Inference timing
+        
         self._inference_times: list[float] = []
 
         self._cooldown_frames_total = round(COOLDOWN_SEC * self.fps)
@@ -895,16 +819,16 @@ class VideoProcessor:
         self._recording             = False
         self._post_frames_remaining = 0
         self._current_event: MountEvent | None = None
-        self._peak_mountee_conf:    float = 0.0   # best mountee conf seen during recording
-        self._peak_mountee_conf:    float = 0.0   # best mountee conf seen during recording
+        self._peak_mountee_conf:    float = 0.0   
+        self._peak_mountee_conf:    float = 0.0   
 
-        # Completed events from this processor
+        
         self.events: list[MountEvent] = []
 
         log.info("[%s] Opened %s  (%.1f fps, %d frames)",
                  cam_label, video_path, self.fps, self.total_frames)
 
-    # ── Frame reading ──────────────────────────────────────────────────────
+    
 
     def read_frame(self) -> tuple[np.ndarray | None, str, float]:
         """Return (frame, ts_str, wall_epoch) or (None, '', 0) at EOF."""
@@ -912,7 +836,7 @@ class VideoProcessor:
         if not ret:
             return None, "", 0.0
         if self._is_rtsp:
-            # Live stream: use real wall-clock time
+            
             wall_epoch = time.time()
             ts_str     = f"[{self.cam_label}] frame {self.frame_idx:06d}  {datetime.fromtimestamp(wall_epoch).strftime("%H:%M:%S.%f")[:-3]}"
         else:
@@ -922,7 +846,7 @@ class VideoProcessor:
         self.frame_idx += 1
         return frame, ts_str, wall_epoch
 
-    # ── Main per-frame logic ───────────────────────────────────────────────
+    
 
     def process_frame(
         self,
@@ -947,16 +871,16 @@ class VideoProcessor:
         """
         wall_ts = datetime.fromtimestamp(wall_epoch).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
-        # ── COCO interaction gate ─────────────────────────────────────────────
-        # Only run the mount model when >= COCO_MIN_COWS cows are close together.
-        # Single-cow frames are skipped entirely, eliminating a major FP source.
-        # ── Mount model inference ─────────────────────────────────────────────
-        # Single tracker step per frame, two filtered views (possible/confirmed)
-        # built from the same set of tracked boxes.  See the note on
-        # run_mount_tracking_multi() for why this matters — previously the
-        # tracker was being advanced twice per frame and reset mid-frame
-        # (persist=False), which destabilised "mount-event" track IDs and
-        # prevented the possible-trigger from ever firing.
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
         _t0 = time.perf_counter()
         _gray = [None]
         _views = run_mount_tracking_multi(
@@ -969,22 +893,22 @@ class VideoProcessor:
         mount_dets_confirmed = _views["confirmed"]
         self._inference_times.append(time.perf_counter() - _t0)
 
-        # ── Per-class presence flags ──────────────────────────────────────────
+        
         has_mount_event_possible = "mount-event" in mount_dets_possible
         has_mounter_possible     = "mounter"     in mount_dets_possible
         has_mount_event_conf     = "mount-event" in mount_dets_confirmed
         has_mounter_conf         = "mounter"     in mount_dets_confirmed
         has_mountee_conf         = "mountee"     in mount_dets_confirmed
 
-        # ── Co-occurrence counters ─────────────────────────────────────────────
-        # Gate: mount-event must be present on both paths.
-        # Confirmed: mount-event + mounter + mountee, all at confirmed thresholds.
+        
+        
+        
         if has_mount_event_conf and has_mounter_conf and has_mountee_conf:
             self._confirmed_cooccur_frames += 1
         else:
             self._confirmed_cooccur_frames = 0
 
-        # Possible: mount-event + mounter at possible thresholds (no mountee).
+        
         if has_mount_event_possible and has_mounter_possible:
             self._possible_cooccur_frames += 1
         else:
@@ -992,11 +916,11 @@ class VideoProcessor:
 
         n = self._confirm_frames_needed
         trigger_confirmed = self._confirmed_cooccur_frames >= n
-        # Suppress possible while confirmed is building.
+        
         trigger_possible  = (self._possible_cooccur_frames >= n
                              and self._confirmed_cooccur_frames == 0)
 
-        # ── Per-frame logging ──────────────────────────────────────────────────
+        
         all_mount_dets = {**mount_dets_confirmed}
         for cls, dets in mount_dets_possible.items():
             all_mount_dets.setdefault(cls, dets)
@@ -1027,13 +951,13 @@ class VideoProcessor:
         all_dets  = [d for dets in all_mount_dets.values() for d in dets]
         ann_frame = annotate_frame(frame, all_dets, self.cam_label, ts_str, self.roi)
 
-        # ── State machine ─────────────────────────────────────────────────────
+        
 
         if self._recording and self._current_event is not None:
             self._current_event.frames.append((ann_frame, ts_str))
             self._raw_pre_buffer.append(frame)
 
-            # Track best mountee conf+det seen during recording (for possible→confirmed upgrades)
+            
             if has_mountee_conf:
                 mc = max(d["conf"] for d in mount_dets_confirmed["mountee"])
                 if mc > self._peak_mountee_conf:
@@ -1042,7 +966,7 @@ class VideoProcessor:
                         mount_dets_confirmed["mountee"], key=lambda d: d["conf"]
                     )
 
-            # Track best mountee conf+det seen during recording (for possible→confirmed upgrades)
+            
             if has_mountee_conf:
                 mc = max(d["conf"] for d in mount_dets_confirmed["mountee"])
                 if mc > self._peak_mountee_conf:
@@ -1051,8 +975,8 @@ class VideoProcessor:
                         mount_dets_confirmed["mountee"], key=lambda d: d["conf"]
                     )
 
-            # Upgrade possible → confirmed if trigger_confirmed fires
-            # during recording, OR via mountee accumulation in the window.
+            
+            
             if self._current_event.event_type == "possible":
                 if trigger_confirmed:
                     log.info("[%s] Confirmed trigger fired during recording → upgrading to CONFIRMED.",
@@ -1120,7 +1044,7 @@ class VideoProcessor:
             self._pre_buffer.append((ann_frame, ts_str))
             self._raw_pre_buffer.append(frame)
 
-    # ── Event trigger ──────────────────────────────────────────────────────
+    
 
     def _trigger_event(
         self,
@@ -1144,8 +1068,8 @@ class VideoProcessor:
         mounter_det = max(mount_dets["mounter"], key=lambda d: d["conf"]) if has_mounter else None
         mountee_det = max(mount_dets["mountee"], key=lambda d: d["conf"]) if has_mountee else None
 
-        # Collar ID deferred to _finalise so we can vote across all recording frames
-        # Use placeholder IDs for now — _finalise will fill them in
+        
+        
         mounter_id, mounter_id_conf, mounter_id_method = "N/A", "N/A", "pending"
         mountee_id, mountee_id_conf, mountee_id_method = "N/A", "N/A", "pending"
 
@@ -1193,14 +1117,14 @@ class VideoProcessor:
             ev = self._current_event
             self._current_event = None
 
-            # ── Collar ID across all event frames ─────────────────────────────
-            # Collect raw frames: pre-buffer stored at trigger + recording frames
-            # Recording frames are annotated (ev.frames), so extract raw separately
-            # by re-running inference on each would be too slow. Instead we use
-            # the stored raw pre-buffer frames plus the trigger raw frame,
-            # supplemented by any raw frames buffered during recording.
-            # trigger_raw_frames = pre-buffer frames at trigger time
-            # _raw_pre_buffer     = recording frames accumulated since trigger
+            
+            
+            
+            
+            
+            
+            
+            
             _all_raw = list(ev.trigger_raw_frames) + list(self._raw_pre_buffer)
             log.debug("[%s] _finalise: voting collar across %d raw frames "
                       "(%d pre-trigger + %d recording)",
@@ -1211,19 +1135,19 @@ class VideoProcessor:
             has_mounter = "mounter" in mount_dets
             has_mountee = "mountee" in mount_dets
 
-            # For possible→confirmed upgrades, mountee absent at trigger — inject best recording det
+            
             if not has_mountee and ev.best_mountee_det is not None:
                 mount_dets = dict(mount_dets)
                 mount_dets["mountee"] = [ev.best_mountee_det]
                 has_mountee = True
 
-            # For possible→confirmed upgrades, mountee was absent at trigger time.
-            # Inject the best mountee det seen during recording so collar ID works.
+            
+            
             if not has_mountee and ev.best_mountee_det is not None:
-                mount_dets = dict(mount_dets)   # shallow copy — don't mutate original
+                mount_dets = dict(mount_dets)   
                 mount_dets["mountee"] = [ev.best_mountee_det]
                 has_mountee = True
-            # Use best-confidence det as reference bbox for collar crop
+            
             ref_raw = _all_raw[-1] if _all_raw else None
 
             if has_mounter and ref_raw is not None:
@@ -1244,7 +1168,7 @@ class VideoProcessor:
                 mountee_id, mountee_id_conf, mountee_id_method, mountee_collar_xyxy = \
                     "N/A", "N/A", "not_detected", None
 
-            # Same-collar conflict resolution
+            
             mounter_det = max(mount_dets["mounter"], key=lambda d: d["conf"]) if has_mounter else None
             mountee_det = max(mount_dets["mountee"], key=lambda d: d["conf"]) if has_mountee else None
             if has_mounter and has_mountee and ref_raw is not None and (
@@ -1279,7 +1203,7 @@ class VideoProcessor:
                      self.cam_label, mounter_id, mounter_id_method,
                      mountee_id, mountee_id_method)
 
-            # Update event with collar results
+            
             ev.mounter_id        = mounter_id
             ev.mounter_id_conf   = mounter_id_conf
             ev.mounter_id_method = mounter_id_method
@@ -1287,22 +1211,22 @@ class VideoProcessor:
             ev.mountee_id_conf   = mountee_id_conf
             ev.mountee_id_method = mountee_id_method
 
-            # Backfill mountee_conf if event triggered as possible
+            
             if ev.mountee_conf == 0.0 and self._peak_mountee_conf > 0.0:
                 ev.mountee_conf = self._peak_mountee_conf
             self._peak_mountee_conf = 0.0
 
-            # Backfill mountee_conf if event triggered as possible (mountee absent at trigger)
+            
             if ev.mountee_conf == 0.0 and self._peak_mountee_conf > 0.0:
                 ev.mountee_conf = self._peak_mountee_conf
-            self._peak_mountee_conf = 0.0  # reset for next event
+            self._peak_mountee_conf = 0.0  
 
-            # Write the clip
+            
             write_clip(ev.frames, ev.fps, ev.clip_path)
             self.events.append(ev)
             log.info("[%s] Clip written → %s  (%d frames)",
                      self.cam_label, ev.clip_path.name, len(ev.frames))
-            self._raw_pre_buffer.clear()  # done with collar voting
+            self._raw_pre_buffer.clear()  
 
     def flush(self) -> None:
         """Called at EOF — finalise any in-progress recording."""
@@ -1318,16 +1242,16 @@ class VideoProcessor:
     def release(self) -> None:
         self.cap.release()
 
-# ─────────────────────────────────────────────
-#  FILENAME → EPOCH PARSER
-# ─────────────────────────────────────────────
 
-# Patterns tried in order for embedded timestamps
+
+
+
+
 _TS_PATTERNS = [
-    # ISO-like: 2024-06-15T13-45-00, 2024-06-15_13-45-00, 2024-06-15 13:45:00
+    
     (re.compile(r"(\d{4})[_\-](\d{2})[_\-](\d{2})[T _\-](\d{2})[:\-](\d{2})[:\-](\d{2})"),
      "%Y %m %d %H %M %S"),
-    # Compact: 20240615_134500 or 20240615134500
+    
     (re.compile(r"(\d{4})(\d{2})(\d{2})[_\-]?(\d{2})(\d{2})(\d{2})"),
      "%Y %m %d %H %M %S"),
 ]
@@ -1350,12 +1274,12 @@ def _path_to_epoch(path: Path) -> float:
                 return dt.replace(tzinfo=timezone.utc).timestamp()
             except ValueError:
                 pass
-    # Fallback: mtime
+    
     return path.stat().st_mtime
 
-# ─────────────────────────────────────────────
-#  FOLDER SCANNER
-# ─────────────────────────────────────────────
+
+
+
 
 def resolve_input(path: Path) -> list[tuple[Path, float]]:
     """
@@ -1394,12 +1318,12 @@ def resolve_input(path: Path) -> list[tuple[Path, float]]:
     raise FileNotFoundError(f"Path does not exist or is not a file/folder: {path}")
 
 
-# Keep old name as alias so any other call sites still work
+
 scan_folder = resolve_input
 
-# ─────────────────────────────────────────────
-#  PAIRED SIMULTANEOUS PROCESSING
-# ─────────────────────────────────────────────
+
+
+
 
 def process_video_pair(
     path1: Path, epoch1: float,
@@ -1502,9 +1426,9 @@ def process_folder_solo(
 
     return all_events
 
-# ─────────────────────────────────────────────
-#  PASS 2 — FUSION
-# ─────────────────────────────────────────────
+
+
+
 
 def _best_id(
     id_a: str, conf_a: float | str, method_a: str,
@@ -1533,7 +1457,7 @@ def _best_id(
     if rank_b > rank_a:
         return id_b, conf_b, method_b
 
-    # Same method rank — prefer higher numeric confidence
+    
     fa = float(conf_a) if isinstance(conf_a, float) else 0.0
     fb = float(conf_b) if isinstance(conf_b, float) else 0.0
     return (id_a, conf_a, method_a) if fa >= fb else (id_b, conf_b, method_b)
@@ -1560,7 +1484,7 @@ def _consensus_id(id1: str, conf1, id2: str, conf2) -> str:
         return id1
     if id1 == id2:
         return id1
-    # Disagree — pick higher confidence, flag with ?
+    
     f1 = float(conf1) if isinstance(conf1, (int, float)) else 0.0
     f2 = float(conf2) if isinstance(conf2, (int, float)) else 0.0
     winner = id1 if f1 >= f2 else id2
@@ -1608,14 +1532,14 @@ def fuse_events(
 
         ev2 = cam2_sorted[best_j]
 
-        # Vote on type — confirmed only when at least one camera is confirmed
+        
         fused_type = (
             "confirmed"
             if "confirmed" in (ev1.event_type, ev2.event_type)
             else "possible"
         )
 
-        # Both-possible pairs are NOT fused: keep both as independent unmatched events
+        
         if fused_type == "possible":
             log.info(
                 "SKIP FUSION  CAM1@%s [possible] ↔ CAM2@%s [possible]  gap=%.1fs — "
@@ -1623,7 +1547,7 @@ def fuse_events(
                 ev1.timestamp, ev2.timestamp, best_gap,
             )
             unmatched1.append(ev1)
-            used2[best_j] = True   # still mark used so ev2 lands in unmatched2, not re-matched
+            used2[best_j] = True   
             continue
 
         used2[best_j] = True
@@ -1631,12 +1555,12 @@ def fuse_events(
                  ev1.timestamp, ev1.event_type,
                  ev2.timestamp, ev2.event_type, best_gap)
 
-        # Confidence: max per class
+        
         fused_me_conf  = max(ev1.mount_event_conf, ev2.mount_event_conf)
         fused_mr_conf  = max(ev1.mounter_conf,     ev2.mounter_conf)
         fused_me2_conf = max(ev1.mountee_conf,     ev2.mountee_conf)
 
-        # Best collar IDs from either camera
+        
         f_mounter_id, f_mounter_conf, f_mounter_method = _best_id(
             ev1.mounter_id, ev1.mounter_id_conf, ev1.mounter_id_method,
             ev2.mounter_id, ev2.mounter_id_conf, ev2.mounter_id_method,
@@ -1646,11 +1570,11 @@ def fuse_events(
             ev2.mountee_id, ev2.mountee_id_conf, ev2.mountee_id_method,
         )
 
-        # No fused clip written — individual camera clips stay in confirmed/possible.
-        # Fused result is recorded in CSV only.
+        
+        
         primary = ev1 if ev1.mean_det_conf >= ev2.mean_det_conf else ev2
 
-        # Determine which event is CAM1 and which is CAM2 for per-cam columns
+        
         _c1, _c2 = (ev1, ev2) if "CAM1" in ev1.cam else (ev2, ev1)
         fused_ev = MountEvent(
             cam               = f"{ev1.cam}+{ev2.cam}",
@@ -1678,7 +1602,7 @@ def fuse_events(
             cam2_mount_event_conf = _c2.mount_event_conf,
             cam2_mounter_conf     = _c2.mounter_conf,
             cam2_mountee_conf     = _c2.mountee_conf,
-            # Per-camera collar IDs
+            
             cam1_mounter_id      = _c1.mounter_id,
             cam1_mounter_id_conf = _c1.mounter_id_conf,
             cam1_mountee_id      = _c1.mountee_id,
@@ -1687,8 +1611,8 @@ def fuse_events(
             cam2_mounter_id_conf = _c2.mounter_id_conf,
             cam2_mountee_id      = _c2.mountee_id,
             cam2_mountee_id_conf = _c2.mountee_id_conf,
-            # Cross-camera consensus: pick the ID that appears in both cameras,
-            # or the higher-confidence one if they disagree.
+            
+            
             possible_mounter     = _consensus_id(_c1.mounter_id, _c1.mounter_id_conf,
                                                   _c2.mounter_id, _c2.mounter_id_conf),
             possible_mountee     = _consensus_id(_c1.mountee_id, _c1.mountee_id_conf,
@@ -1702,7 +1626,7 @@ def fuse_events(
             f_mountee_id, f_mountee_method,
         )
 
-    # Unmatched events — clips already written to disk by _finalise; nothing more to do
+    
     unmatched2 = [ev2 for j, ev2 in enumerate(cam2_sorted) if not used2[j]]
     for ev in unmatched1 + unmatched2:
         log.info("Unmatched [%s] event @ %s — clip already on disk: %s",
@@ -1713,9 +1637,9 @@ def fuse_events(
              len(fused_out), len(unmatched1), len(unmatched2), len(all_out))
     return all_out
 
-# ─────────────────────────────────────────────
-#  TOP-LEVEL ORCHESTRATOR
-# ─────────────────────────────────────────────
+
+
+
 
 
 def process_rtsp(
@@ -1740,7 +1664,7 @@ def process_rtsp(
 
     signal.signal(signal.SIGINT, _sigint)
 
-    RECONNECT_DELAY = 5  # seconds between reconnection attempts
+    RECONNECT_DELAY = 5  
 
     def _make_proc(url: str, cam_label: str, roi: tuple) -> VideoProcessor:
         while not stop_flag["stop"]:
@@ -1768,7 +1692,7 @@ def process_rtsp(
     proc2 = _make_proc(cam2_url, "CAM2", ROI_2) if cam2_url else None
 
     while not stop_flag["stop"]:
-        # ── CAM1 ──────────────────────────────────────────────────────────
+        
         frame1, ts1, wepoch1 = proc1.read_frame()
         if frame1 is None:
             log.warning("[CAM1] Stream lost — reconnecting...")
@@ -1780,7 +1704,7 @@ def process_rtsp(
             continue
         proc1.process_frame(frame1, ts1, wepoch1)
 
-        # ── CAM2 ──────────────────────────────────────────────────────────
+        
         if proc2 is not None:
             frame2, ts2, wepoch2 = proc2.read_frame()
             if frame2 is None:
@@ -1800,7 +1724,7 @@ def process_rtsp(
             log.info("Live: %d frames processed  CAM1=%d events  CAM2=%d events",
                      frame_count, e1, e2)
 
-    # ── Cleanup ───────────────────────────────────────────────────────────
+    
     log.info("Stopping — flushing buffers...")
     proc1.flush()
     proc1.release()
@@ -1809,7 +1733,7 @@ def process_rtsp(
         proc2.release()
 
     if proc2:
-        # fuse_events returns fused + unmatched sorted by epoch
+        
         all_events = fuse_events(proc1.events, proc2.events, fusion_window_sec)
     else:
         all_events = proc1.events
@@ -1833,7 +1757,7 @@ def process_dual_folders(
                  __import__("datetime").datetime.fromtimestamp(cam1_start_override))
 
     if cam2_input is None:
-        # ── Single-camera mode (file or folder) ─────────────────────────────
+        
         log.info("=== Single-camera mode: %s ===", cam1_input)
         all_events = process_folder_solo(
             cam1_videos, "CAM1", ROI_1, mount_model, collar_model
@@ -1854,7 +1778,7 @@ def process_dual_folders(
     all_cam1_events: list[MountEvent] = []
     all_cam2_events: list[MountEvent] = []
 
-    # ── Process paired clips simultaneously ──────────────────────────────────
+    
     for i in range(n_pairs):
         path1, epoch1 = cam1_videos[i]
         path2, epoch2 = cam2_videos[i]
@@ -1866,24 +1790,24 @@ def process_dual_folders(
         all_cam1_events.extend(ev1)
         all_cam2_events.extend(ev2)
 
-        # Fuse immediately after each pair so frames stay in memory
-        # (avoids holding all pairs' frames simultaneously)
+        
+        
         if ev1 or ev2:
             pair_fused = fuse_events(ev1, ev2, fusion_window_sec)
-            # Replace the raw events for this pair with the fused/unmatched results
-            # They are already included in all_cam1_events / all_cam2_events,
-            # so we collect the final merged list separately.
+            
+            
+            
             if i == 0:
                 merged_events = pair_fused
             else:
                 merged_events = sorted(
                     merged_events + pair_fused, key=lambda e: e.wall_epoch
                 )
-        # Release frame buffers — clips already written to disk
+        
         for ev in ev1 + ev2:
             ev.frames = []
 
-    # ── Process leftover clips from the longer folder ────────────────────────
+    
     leftover_cam1 = cam1_videos[n_pairs:]
     leftover_cam2 = cam2_videos[n_pairs:]
 
@@ -1914,9 +1838,9 @@ def process_dual_folders(
         CLIPS_DIR, LOG_FILE,
     )
 
-# ─────────────────────────────────────────────
-#  CLI
-# ─────────────────────────────────────────────
+
+
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
